@@ -344,9 +344,10 @@ void loop()
 
   if (triggerPinState != digitalReadFast(trig[0]))
   {
-    triggerPinState = ! triggerPinState;
-    digitalWriteDirect(trigLed, triggerPinState);
 
+    triggerPinState = ! triggerPinState;
+    // digitalWriteDirect(trigLed, triggerPinState);
+    
     for (byte i = 0; i < NR_DACS; i++) // todo: optimize by ordering an array with sequenceable DACS and only cycle through those
     {
       if (dacSequencing[i])
@@ -1024,78 +1025,25 @@ void loop()
   } //EXIT LOOP FOR SERIAL HERE
   
 
-/*********************This block runs the high speed control interface *********************/
+  // using this instead of relying on SerialAvailable speeds up about 200 micro-seconds per loop
+  if (Serial.available()) {
+    trigArmed = false;
+    while (Serial.available()) {
+      // get the new byte:
+      char inChar = (char)Serial.read(); 
+      // add it to the inputString:
+      inputString += inChar;
+      // if the incoming character is a newline, set a flag
+      // so the main loop can do something about it:
+      if (inChar == '\n') {
+        stringComplete = true;
+      } 
+    }
+  }
+    
+} //END OF LOOP
 
-/****checks the acquisition order
- * mode 0 == channel first eg set ch1 stweep Z
- * mode 1 == Z first EG step Z then Ch1 Ch2 then Step Z ...
- */ 
-
-/*
- while(trigArmed)
- { // just sit here and wait for the next command until armed is off,  which can only happen @ end of sequence
-   unsigned long tStart = millis() + timeOut; //set timeout position 
-   unsigned long tLed = 0;
-  // focus commands = start, step, #loops,direction,slave,current step
-  //if(program == 0) {inTrigger=true; } //force a first step 
-  
-  if( inTrigger ) 
-  { //we recieved a trigger from our source
-    //  and is mode 0, and is at 0 position OR
-    // and is mode 1, and is at any position OR
-    // if focus isn't enabled
- */   
-    /*
-     * When should a channel update be issued? When
-     *  focus is ON, and mode is sweep per channel (0) AND F position is 0
-     *  focus is ON, and mode is slave to channel (1)
-     *  focus is off any time
-     */
-    
- //   boolean runUpdate = true;
-    /*
-    if( (focArray[1] != 0) && (focArray[4] == 0) ){ //if we are using the focus and focus will sweep through a single channel setting
-      if( focArray[5] == 0 ) { runUpdate = true;} //AND if the focus is at position 0 (start of sweep)
-    }
-    
-    if( (focArray[1] !=0) && (focArray[4] == 1)) { runUpdate = true; } // Case where channel is switching each Z plane
-    if(focArray[1] == 0) {runUpdate=true;}                           //Case where no focus block used so update the channel
-    */
-  /*  
-    //do DAC and TTL control stuff, not focus stuff though
-    if(runUpdate) {
-      byte walker=0;
-      for(walker = 0 ; walker < 15 ; ++walker ){  //sets DACs 1-16 
-        dac_write(10,0, DAC [walker], dacArray [program] [walker]); // Set DAC Lines
-        digitalWriteDirect( ttl [walker] , ttlArray[program] [walker] ); //set TTL lines
-      }
-      digitalWriteDirect( ttl [walker] , ttlArray[program] [walker] ); //set 16th TTL line - 
-    }
-    ++program;
-*/
-  /* THIS MOVES AROUND THE Z FOCUS 
-   * in this case, we assume a trigger was recieved, but we should only mess with focus stuff if it's on and if it's needed 
-   * here we only want to update the focus position in the case that EITHER
-   * Mode = 0 Channel 1 - Z 1, Z2, Z3
-   * mode = 1 Z 1 - CH1, CH2, Z2, Ch1, Ch2 
-   */
-/*
-    if( (focArray[1] != 0) && ( focArray[4]==0 )){ fastFocus(); }       // if any focus array is active, and MODE = SWEEP OVER CHANNEL
-    if( (focArray[1] != 0) && ( focArray[4]==1 )){                      // in this case sweep is active  and MODE = STEP AFTER CHANNEL  
-      if((program == maxProgram-1) && (focArray[5] <= focArray[2])) {fastFocus();}            
-    }
-    
-    delay(delArray[program]);  //wait for specified delay          
-    
-    if(  focArray[1] == 0) {++program;}              //if not using focus at all
-    if( (focArray[1] != 0) && (focArray[4] == 1) ) { //focus is used but in step mode
-      ++program; 
-      if( (program > maxProgram) && (focArray[5] != 0) ) { //because we are stepping the focus, program must be reset to 0 in this case we know the focus has not completed, so we can reset the main program array position
-        program=0;
-      }
-    }
-    */
-  } //END OF TRIGGER RESPONSE
+void yield() {} // To prevent SerialAvaialble from taking up clock cycles
 
   /*
    inTrigger=false; //turn off trigger
@@ -1243,7 +1191,7 @@ inline void setPinGroup(byte pinGroup, byte value)
   {
     ttlState = (ttlState & 0x00ff) | (value << 8);
   }  
-  mcp.digitalWrite(ttlLed, ttlState > 0);
+  // mcp.digitalWrite(ttlLed, ttlState > 0);
 }
 
 /*
