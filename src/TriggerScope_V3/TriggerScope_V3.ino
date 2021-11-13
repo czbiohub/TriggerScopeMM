@@ -889,22 +889,26 @@ void loop()
         if (pinGroup < 0 || pinGroup > 1) { error = true; }
         int state = inputString.substring(5,6).toInt();
         if (state < 0 || state > 1) { error = true; }
-        int transition = inputString.substring(7,8).toInt();
-        if (transition < 0 || transition > 1) { error = true; }
+        int rising = inputString.substring(7,8).toInt();
+        if (rising < 0 || rising > 1) { error = true; }
         if (!error)
         {
           pinGroupSequencing[pinGroup] = (boolean) state;
-          pinGroupSequenceMode[pinGroup] = transition;
+          pinGroupSequenceMode[pinGroup] = rising;
           if (state)
           {
             pinGroupStoredState[pinGroup] = pinGroupState[pinGroup];
             ttlArrayIndex[pinGroup] = 0; 
+            if (!rising) { // if we trigger on the falling edge, set initial state now, and advance counter here
+              setPinGroup(pinGroup, ttlArray[ttlArrayIndex[pinGroup]][pinGroup]); // Check blanking?
+              ttlArrayIndex[pinGroup]++;
+            }
           } else
           {
             pinGroupState[pinGroup] = pinGroupStoredState[pinGroup];
           }
           char out[20];
-          sprintf(out, "!PDS%d%c%d%c%d", pinGroup, sep, state, sep, transition);
+          sprintf(out, "!PDS%d%c%d%c%d", pinGroup, sep, state, sep, rising);
           Serial.println(out);
         }
       } else 
