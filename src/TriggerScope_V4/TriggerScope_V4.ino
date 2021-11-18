@@ -98,7 +98,10 @@
          where n is the pingroup (0 or 1) and s switched blanking mode on (1) or off (0). 
          t translates state of the input pin to its activity for blanking.  If t = 0, 
          output pins will be low when input trigger pin is low.  When t = 1, output pins 
-         will be active when input trigger is low.       
+         will be active when input trigger is low.   
+ "BDS" - Strobes the digital output, i.e. switches it off after a set time.
+          When that duration is set to 0, no strobing will take place.
+          Format: BDSd where d is the duration of the strob in micro-seconds (or 0 for off).            
  "SSL" - Set Signal LEDs.
          In some cases, setting signal LEDs slows down triggered operation, so offer the option to 
          not set them.
@@ -116,6 +119,7 @@ Contact Advanced Research Consulting for Driver libraries! www.advancedresearch.
 #include <Wire.h>
 #include "Linduino.h"
 #include "Adafruit_MCP23017.h"
+#include "TeensyTimerInterrupt.h" // See: https://www.arduino.cc/reference/en/libraries/teensy_timerinterrupt/
 
 #define focus 15     //sets focus line #
 #define pwrLed 11    //POWER indication
@@ -161,8 +165,10 @@ const char* helpString = "Available commands: \r\n"
   "PDSn-s-t - starts triggered transitions in digital output state as pre-loaded in PDO, \r\n"
   "           n = pin group 0(1-8) or 1 (9-16), s = 0 stops 1 starts, \r\n"
   "           t = transition on falling (0) or rising (1) edge of input trigger.\r\n"
-  "BDn-s-t - sync digital output with input trigger. n = pin group 0(1-8) or 1 (9-16)\r\n"
+  "BDOn-s-t - sync digital output with input trigger. n = pin group 0(1-8) or 1 (9-16)\r\n"
   "          s = 0 stops 1 starts, t = output low when trigger low (0), or inverse (1)\r\n"
+  "BDSd - Strobes the digital output, i.e. switches it off after d microseconds. \r\n"
+  "       when d equals 0, no strobing will occur\r\n"
   "SSLn - switches use of signal LEDs.  n=0 (Off) or n=1 (On)\r\n"
   "\r\n"; // empty line to signal end of help textd
 
@@ -198,6 +204,11 @@ int dacArrayIndex[NR_DACS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 uint32_t dacBlankDelay[NR_DACS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 uint32_t dacBlankDuration[NR_DACS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 boolean useSignalLEDs_ = true;
+
+// Timer used for strobing of digital outputs
+TeensyTimer strobeTimer_(TEENSY_TIMER_1);
+uint64_t strobeTime_ = 0;
+bool strobeTimerRunning_ = false;
 
 // data structures to be assembled from blanking settings above that have a time-ordered sequence of events
 int dacBlankEventsNr = 0;
@@ -291,7 +302,7 @@ void setup()
     delay(10);
   } //SET OUTPUT PINS ON TTL AND CAMERA LINES
 
-   Serial.begin(115200); // start serial @ 115,200 baud
+  Serial.begin(115200); // start serial @ 115,200 baud
   while (!Serial) { ; } // wait for serial port
 
   //read from SD card
@@ -396,6 +407,14 @@ void loop()
       {
         pinGroupBlankOnLow[i] == triggerPinState ? setPinGroup(i, pinGroupState[i]) : 
                                                    setPinGroup(i, 0);
+      }
+    }
+    if ( (pinGroupBlanking[0] || pinGroupBlanking[1]) && strobeTime_)
+    {
+      if (!strobeTimerRunning_)
+      {
+        strobeTimer_.attachInterrupt(strobeTime_, strobeHandler);
+        strobeTimerRunning_ = true;
       }
     }
 
@@ -984,6 +1003,19 @@ void loop()
       }
     }
 
+
+    /*
+     * "BDS" - Strobes the digital output, i.e. switches it off after a set time.
+          When that duration is set to 0, no strobing will take place.
+          Format: BDSd where d is the duration of the strob in micro-seconds (or 0 for off).     
+     */
+     else if (command == "BDS") 
+     {
+       strobeTime_ = inputString.subString(3).toInt();
+       Serial.print("!BDS");
+       Serial.println(strobeTime);
+     }
+
     /**
      * Sets voltage range of DACS
      */
@@ -1569,15 +1601,15 @@ uint32_t dacBlankEventNextWait[2 * NR_DACS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 uint8_t dacBlankEventPinNr[2 * NR_DACS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 // 0 : off, 1: set normal state, 2: set value from dacArray
 uint8_t dacBlankEventState[2 * NR_DACS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
+  int dacsUsed [NR_DACS] =   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   */
 
   // note: this should probably be duplicated for both trigger directions, ignore now for simplicity
   
   int nrDacsInUse = 0;
-  int dacsUsed [NR_DACS] =   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   for (int i = 0; i < NR_DACS; i++) {
     if (dacBlanking[i]) { 
-      dacsUsed[nrDacsInUse] = i;
       nrDacsInUse++;
     }
   }
@@ -1589,7 +1621,6 @@ uint8_t dacBlankEventState[2 * NR_DACS] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
       dacBlankEventsNr++;
     }
   }
-  
 }
 
 
@@ -1621,12 +1652,12 @@ void clearDac()
   byte inLine = atoi(instring); //convert char table to useable integer for DAC level
   inLine = inLine - 1;
   for(byte i = 0 ; i<50;++i)
-    {
+  {
     dacArray[i][inLine] = 0;  
-    }
+  }
   Serial.print("!CLEAR_DAC,"); //print recieve message to operator
   Serial.println(inLine+1);
-  }
+}
 
 inline void clearPDO(byte bank)
 {
@@ -1758,6 +1789,27 @@ void digitalWriteDirect(int pin, boolean val){
     if(pin < 9) {digitalWriteFast(pin,val);}
     else if(pin>8) {mcp.digitalWrite(pin,val);}
 }
+
+/**
+ * This function is called by the timer set up to handle strobing of the digital output
+ * When strobing is active, a timer set with the desired duration is attached.
+ * The timer calls this function.  THis function sets the outputs of those pinGroups that 
+ * are blanking to low. 
+ */
+void strobeHandler()
+{
+  for (byte i = 0; i < 2; i++)
+  {
+    if (pinGroupBlanking[i])
+    {
+      setPinGroup(i, 0);
+    }
+  }
+  // now detach the timer since we only want to do this once
+  strobeTimer_.detachInterrupt();
+  strobeTimerRunning_ = false;
+}
+
 
 /*
 inline int digitalReadDirect(int) __attribute__((always_inline));
