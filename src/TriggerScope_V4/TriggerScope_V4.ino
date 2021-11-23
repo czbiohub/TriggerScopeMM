@@ -1011,9 +1011,9 @@ void loop()
      */
      else if (command == "BDS") 
      {
-       strobeTime_ = inputString.subString(3).toInt();
+       strobeTime_ = inputString.substring(3).toInt();
        Serial.print("!BDS");
-       Serial.println(strobeTime);
+       Serial.println(strobeTime_);
      }
 
     /**
